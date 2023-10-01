@@ -1,0 +1,97 @@
+import urllib.request
+import zipfile
+from datetime import datetime
+import os
+import pandas as pd
+
+# Create directory if it doesn't exist
+if not os.path.exists('downloads'):
+    os.makedirs('downloads')
+
+# Create a directory for extracted files if it doesn't exist
+if not os.path.exists('extracted_files'):
+    os.makedirs('extracted_files')
+
+headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537'
+}
+
+df = pd.DataFrame()
+
+for i in range(2000, datetime.now().year + 1, 1):
+    url = f"https://www.cftc.gov/files/dea/history/dea_fut_xls_{i}.zip"
+    download_path = f"downloads\\{i}.zip"
+    extract_path = f"extracted_files\\{i}"
+
+    req = urllib.request.Request(url, headers=headers)
+
+    try:
+        with urllib.request.urlopen(req) as response, open(download_path, 'wb') as out_file:
+            data = response.read()
+            out_file.write(data)
+            print(f"{i} = done")
+
+            # Extract here:
+            with zipfile.ZipFile(download_path, 'r') as zip_ref:
+                zip_ref.extractall(extract_path)
+            print(f"{i} = extracted")
+
+            files_in_directory = os.listdir(extract_path)
+            new_data_files = [f for f in files_in_directory if os.path.isfile(os.path.join(extract_path, f))]
+
+            for j in new_data_files:
+                new_data = pd.read_excel(f"extracted_files\\{i}\\{j}", engine='xlrd')
+                df = pd.concat([df, new_data], ignore_index=True)
+
+    except urllib.error.HTTPError as e:
+        print(f"HTTP Error: {e.code} for {url}")
+    except urllib.error.URLError as e:
+        print(f"URL Error: {e.reason} for {url}")
+
+for i in df.columns:
+    print(i)
+
+# Columns to keep
+columns_to_keep = [
+    'Report_Date_as_MM_DD_YYYY',
+    'Open_Interest_All',
+    'NonComm_Positions_Long_All',
+    'NonComm_Positions_Short_All',
+    'Comm_Positions_Long_All',
+    'Comm_Positions_Short_All',
+    'Tot_Rept_Positions_Long_All',
+    'Tot_Rept_Positions_Short_All',
+    'Pct_of_OI_NonComm_Long_All',
+    'Pct_of_OI_NonComm_Short_All',
+    'Pct_of_OI_Comm_Long_All',
+    'Pct_of_OI_Comm_Short_All',
+    'Traders_NonComm_Long_All',
+    'Traders_NonComm_Short_All',
+    'Traders_Comm_Long_All',
+    'Traders_Comm_Short_All'
+]
+
+# Filter the DataFrame to keep only the relevant columns
+df = df[columns_to_keep]
+
+# Calculate Net Positions
+df['Net_NonComm_Positions_All'] = df['NonComm_Positions_Long_All'] - df['NonComm_Positions_Short_All']
+df['Net_Comm_Positions_All'] = df['Comm_Positions_Long_All'] - df['Comm_Positions_Short_All']
+
+# New: Calculate Change Long and Change Short for NonComm and Comm
+df.sort_values(by=['Report_Date_as_MM_DD_YYYY'], inplace=True)
+df['Change_NonComm_Long_All'] = df['NonComm_Positions_Long_All'].diff()
+df['Change_NonComm_Short_All'] = df['NonComm_Positions_Short_All'].diff()
+df['Change_Comm_Long_All'] = df['Comm_Positions_Long_All'].diff()
+df['Change_Comm_Short_All'] = df['Comm_Positions_Short_All'].diff()
+
+# New: Calculate % Long and % Short for NonComm and Comm
+df['Percent_NonComm_Long_All'] = (df['NonComm_Positions_Long_All'] / df['Open_Interest_All']) * 100
+df['Percent_NonComm_Short_All'] = (df['NonComm_Positions_Short_All'] / df['Open_Interest_All']) * 100
+df['Percent_Comm_Long_All'] = (df['Comm_Positions_Long_All'] / df['Open_Interest_All']) * 100
+df['Percent_Comm_Short_All'] = (df['Comm_Positions_Short_All'] / df['Open_Interest_All']) * 100
+
+# Save the filtered and updated DataFrame to a new CSV file
+df.to_csv("filtered_and_updated_data.csv", index=False)
+
+print("Filtered and updated DataFrame saved to 'filtered_and_updated_data.csv'")
